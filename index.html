@@ -80,17 +80,29 @@
             position: fixed;
             top: 10px;
             right: 10px;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.9);
             color: #0f0;
             padding: 10px;
             font-size: 11px;
             font-family: monospace;
             max-width: 250px;
+            display: block;
+            border: 1px solid #0f0;
+        }
+
+        #debug-panel.hidden {
             display: none;
         }
 
-        #debug-panel.visible {
-            display: block;
+        #loading-status {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #ff0;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-family: monospace;
         }
     </style>
 </head>
@@ -112,13 +124,26 @@
     </div>
 
     <div id="debug-panel">
-        <div>State: <span id="debug-state">-</span></div>
-        <div>Balls in play: <span id="debug-balls">0</span></div>
+        <div><strong>DEBUG</strong> (press D to toggle)</div>
+        <hr style="border-color: #0f0; margin: 5px 0;">
+        <div>State: <span id="debug-state">LOADING</span></div>
+        <div>Balls: <span id="debug-balls">0</span></div>
         <div>Last switch: <span id="debug-switch">-</span></div>
         <div>FPS: <span id="debug-fps">0</span></div>
     </div>
 
+    <div id="loading-status">Loading game...</div>
+
     <!-- Core modules -->
     <script type="module" src="src/main.js"></script>
+    <script>
+        // Simple error handler
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+            console.error('Global error:', msg, 'at', url, lineNo, columnNo);
+            document.getElementById('loading-status').textContent = 'Error: ' + msg;
+            document.getElementById('loading-status').style.color = '#f00';
+            return false;
+        };
+    </script>
 </body>
 </html>

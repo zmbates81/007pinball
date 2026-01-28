@@ -14,12 +14,15 @@ import solenoidDriver from './hardware/SolenoidDriver.js';
 import renderer from './render/Renderer.js';
 import gameLogic from './logic/GameLogic.js';
 
+console.log('Modules loaded successfully');
+
 /**
  * Main Application
  */
 class PinballApp {
     constructor() {
         this.initialized = false;
+        console.log('PinballApp constructor called');
     }
 
     /**
@@ -33,15 +36,23 @@ class PinballApp {
 
         try {
             // Initialize renderer first (sets up canvas and input)
+            console.log('1. Initializing renderer...');
             renderer.initialize('game-canvas');
+            console.log('   Renderer initialized, ctx:', renderer.ctx ? 'OK' : 'NULL');
 
             // Initialize physics engine
+            console.log('2. Initializing physics engine...');
             physicsEngine.initialize();
+            console.log('   Physics initialized, flippers:',
+                physicsEngine.leftFlipper ? 'OK' : 'NULL');
 
             // Initialize game logic (sets up state machine)
+            console.log('3. Initializing game logic...');
             gameLogic.initialize();
+            console.log('   Game logic initialized');
 
             // Register update callbacks with game loop
+            console.log('4. Registering game loop callbacks...');
             gameLoop.onUpdate((dt) => {
                 // Update physics
                 physicsEngine.update(dt);
@@ -55,15 +66,27 @@ class PinballApp {
                 renderer.render(alpha);
                 renderer.updateDebugFps(gameLoop.getFPS());
             });
+            console.log('   Callbacks registered');
 
             // Start in attract mode
+            console.log('5. Starting state machine in attract mode...');
             stateMachine.start('attract');
+            console.log('   State machine started');
 
-            // Enable event logging for debugging
-            eventBus.setLogging(true);
+            // Disable verbose event logging (enable with eventBus.setLogging(true) in console)
+            eventBus.setLogging(false);
 
             this.initialized = true;
-            console.log('Initialization complete!');
+
+            // Update loading status
+            const loadingEl = document.getElementById('loading-status');
+            if (loadingEl) {
+                loadingEl.textContent = 'Ready! Press S to start';
+                loadingEl.style.color = '#0f0';
+            }
+
+            console.log('');
+            console.log('=== Initialization complete! ===');
             console.log('');
             console.log('Controls:');
             console.log('  [S] or [Enter] - Start Game');
@@ -73,14 +96,18 @@ class PinballApp {
             console.log('  [D] - Toggle Debug Panel');
             console.log('  [C] - Toggle Collision Zones');
             console.log('');
-            console.log('Mouse:');
-            console.log('  Click bottom-left: Left Flipper');
-            console.log('  Click bottom-right: Right Flipper');
-            console.log('  Click/drag plunger: Launch Ball');
-            console.log('');
 
         } catch (error) {
             console.error('Initialization failed:', error);
+            console.error(error.stack);
+
+            // Update loading status with error
+            const loadingEl = document.getElementById('loading-status');
+            if (loadingEl) {
+                loadingEl.textContent = 'Error: ' + error.message;
+                loadingEl.style.color = '#f00';
+            }
+
             throw error;
         }
     }

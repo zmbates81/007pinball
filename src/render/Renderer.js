@@ -12,6 +12,7 @@ import physicsEngine from '../physics/PhysicsEngine.js';
 
 class Renderer {
     constructor() {
+        console.log('Renderer constructor called');
         this.canvas = null;
         this.ctx = null;
         this.width = PlayfieldConfig.WIDTH;
@@ -24,7 +25,7 @@ class Renderer {
         this.mouseY = 0;
 
         // Visual settings
-        this.showDebug = false;
+        this.showDebug = true;  // Show debug by default for troubleshooting
         this.showCollisionZones = false;
 
         // Interpolation data
@@ -36,6 +37,10 @@ class Renderer {
         // Plunger visual state
         this.plungerY = 0;
         this.plungerMaxPull = 80;
+
+        // Frame counter for debugging
+        this.frameCount = 0;
+        console.log('Renderer constructor complete');
     }
 
     /**
@@ -43,20 +48,29 @@ class Renderer {
      * @param {string} canvasId
      */
     initialize(canvasId = 'game-canvas') {
+        console.log('Renderer.initialize() called');
+
         this.canvas = document.getElementById(canvasId);
         if (!this.canvas) {
             console.error('Canvas not found:', canvasId);
-            return;
+            return false;
         }
+        console.log('  Canvas element found:', this.canvas.width, 'x', this.canvas.height);
 
         this.ctx = this.canvas.getContext('2d');
+        if (!this.ctx) {
+            console.error('Could not get 2D context');
+            return false;
+        }
+
         this.width = this.canvas.width;
         this.height = this.canvas.height;
 
         // Set up input handlers
         this.setupInputHandlers();
 
-        console.log('Renderer initialized');
+        console.log('  Renderer initialized OK');
+        return true;
     }
 
     /**
@@ -312,23 +326,56 @@ class Renderer {
      * @param {number} alpha - Interpolation factor
      */
     render(alpha) {
-        if (!this.ctx) return;
+        this.frameCount++;
 
-        // Clear canvas
-        this.ctx.fillStyle = '#1a3a1a'; // Dark green playfield
+        // Log first few frames
+        if (this.frameCount <= 3) {
+            console.log('Render frame', this.frameCount, 'ctx:', this.ctx ? 'OK' : 'NULL');
+        }
+
+        if (!this.ctx) {
+            console.warn('Render called but ctx is null');
+            return;
+        }
+
+        // Clear canvas with dark green playfield color
+        this.ctx.fillStyle = '#1a3a1a';
         this.ctx.fillRect(0, 0, this.width, this.height);
 
-        // Draw layers in order
-        this.drawPlayfield();
-        this.drawLamps();
-        this.drawCollisionZones();
-        this.drawFlippers(alpha);
-        this.drawBalls(alpha);
-        this.drawPlunger();
-        this.drawUI();
+        // DEBUG: Draw a bright red rectangle - if you see this, rendering works!
+        this.ctx.fillStyle = '#ff0000';
+        this.ctx.fillRect(100, 100, 200, 100);
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.font = 'bold 20px Arial';
+        this.ctx.fillText('RENDER OK', 120, 160);
 
-        if (this.showDebug) {
-            this.drawDebugInfo();
+        // Draw layers in order
+        try {
+            this.drawPlayfield();
+            this.drawLamps();
+            this.drawCollisionZones();
+            this.drawFlippers(alpha);
+            this.drawBalls(alpha);
+            this.drawPlunger();
+            this.drawUI();
+
+            // Draw frame counter in top-left for debugging
+            this.ctx.fillStyle = '#00ff00';
+            this.ctx.font = 'bold 16px monospace';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText('Frame: ' + this.frameCount, 60, 30);
+            this.ctx.fillText('Size: ' + this.width + 'x' + this.height, 60, 50);
+
+            if (this.showDebug) {
+                this.drawDebugInfo();
+            }
+        } catch (err) {
+            console.error('Render error:', err);
+            console.error(err.stack);
+            // Draw error on canvas
+            this.ctx.fillStyle = '#ff0000';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText('ERROR: ' + err.message, 60, 70);
         }
     }
 
