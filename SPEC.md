@@ -1,8 +1,13 @@
 # GoldenEye 007 Pinball Simulation - Technical Specification
 
-**Version:** 1.0 DRAFT
-**Status:** AWAITING APPROVAL
+**Version:** 1.0
+**Status:** APPROVED
 **Date:** 2026-01-28
+
+### Approved Design Decisions
+- **Physics**: Arcade-style (rule accuracy prioritized over realistic simulation)
+- **Modes**: 4 core modes for MVP (Runway, Facility, Train, Tank)
+- **Input**: Keyboard + Mouse (click-and-drag plunger, clickable flippers)
 
 ---
 
@@ -704,18 +709,16 @@ function renderLamp(ctx, lamp, state) {
 
 ---
 
-## Open Questions for Approval
+## Design Decisions (Approved)
 
-Before proceeding to implementation, please clarify:
-
-1. **Physics Fidelity vs. Rule Fidelity**: Should the ball physics feel "realistic" with proper momentum and angles, or is a more "arcade-like" simplified physics acceptable as long as the ball triggers switches correctly?
-
-2. **Mode Completeness**: Should all 8 007 modes be fully implemented, or should we start with 3-4 core modes and add the rest iteratively?
-
-3. **Input Method**: Should we support keyboard only (arrows/Z/X for flippers), or also include mouse/touch dragging for mobile compatibility from the start?
+| Question | Decision |
+|----------|----------|
+| Physics Fidelity | **Arcade-style** - Ball moves predictably, always triggers correct switches, forgiving physics. Rule accuracy prioritized over realistic feel. |
+| Mode Completeness | **4 Core Modes for MVP** - Runway, Facility, Train, Tank. Remaining modes (Silo, Statue, Archives, Cradle) added in future iteration. |
+| Input Method | **Keyboard + Mouse** - Z/X or Shift for flippers, click-and-drag plunger, clickable flipper buttons for mouse-only play. |
 
 ---
 
-**SPEC STATUS: AWAITING APPROVAL**
+**SPEC STATUS: APPROVED**
 
-*Please review and respond with approval or change requests before implementation begins.*
+*Implementation may begin.*
