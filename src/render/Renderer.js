@@ -338,9 +338,16 @@ class Renderer {
             return;
         }
 
-        // Clear canvas
-        this.ctx.fillStyle = '#1a3a1a'; // Dark green playfield
+        // Clear canvas with dark green playfield color
+        this.ctx.fillStyle = '#1a3a1a';
         this.ctx.fillRect(0, 0, this.width, this.height);
+
+        // DEBUG: Draw a bright red rectangle - if you see this, rendering works!
+        this.ctx.fillStyle = '#ff0000';
+        this.ctx.fillRect(100, 100, 200, 100);
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.font = 'bold 20px Arial';
+        this.ctx.fillText('RENDER OK', 120, 160);
 
         // Draw layers in order
         try {
@@ -354,8 +361,10 @@ class Renderer {
 
             // Draw frame counter in top-left for debugging
             this.ctx.fillStyle = '#00ff00';
-            this.ctx.font = '14px monospace';
-            this.ctx.fillText('Frame: ' + this.frameCount, 60, 25);
+            this.ctx.font = 'bold 16px monospace';
+            this.ctx.textAlign = 'left';
+            this.ctx.fillText('Frame: ' + this.frameCount, 60, 30);
+            this.ctx.fillText('Size: ' + this.width + 'x' + this.height, 60, 50);
 
             if (this.showDebug) {
                 this.drawDebugInfo();
@@ -363,6 +372,10 @@ class Renderer {
         } catch (err) {
             console.error('Render error:', err);
             console.error(err.stack);
+            // Draw error on canvas
+            this.ctx.fillStyle = '#ff0000';
+            this.ctx.font = '14px monospace';
+            this.ctx.fillText('ERROR: ' + err.message, 60, 70);
         }
     }
 
