@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoldenEye 007 Pinball</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #score-display {
+            background: #000;
+            color: #ff6600;
+            padding: 10px 20px;
+            border: 2px solid #8b4513;
+            margin-bottom: 10px;
+            min-width: 300px;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+        #score-display .player-info { font-size: 14px; color: #ffaa00; margin-bottom: 5px; }
+        #score-display .score { font-size: 32px; color: #ff6600; text-shadow: 0 0 10px #ff6600; }
+        #score-display .ball-info { font-size: 14px; color: #00ff00; margin-top: 5px; }
+        #game-canvas {
+            border: 4px solid #333;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            cursor: default;
+        }
+        #controls-info {
+            margin-top: 10px;
+            color: #888;
+            font-size: 12px;
+            text-align: center;
+        }
+        #controls-info span { margin: 0 10px; }
+        #debug-panel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #0f0;
+            padding: 10px;
+            font-size: 11px;
+            font-family: monospace;
+            border: 1px solid #0f0;
+        }
+        #status { position: fixed; bottom: 10px; left: 10px; color: #0f0; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="score-display">
+            <div class="player-info">PLAYER 1</div>
+            <div class="score" id="score-value">0</div>
+            <div class="ball-info">BALL <span id="ball-number">1</span> OF 3</div>
+        </div>
+        <canvas id="game-canvas" width="800" height="1200"></canvas>
+        <div id="controls-info">
+            <span>[Z] Left Flipper</span>
+            <span>[X] Right Flipper</span>
+            <span>[SPACE] Launch</span>
+            <span>[S] Start Game</span>
+        </div>
+    </div>
+    <div id="debug-panel">
+        <strong>DEBUG</strong><hr style="border-color:#0f0;margin:5px 0">
+        <div>State: <span id="debug-state">ATTRACT</span></div>
+        <div>FPS: <span id="debug-fps">0</span></div>
+        <div>Balls: <span id="debug-balls">0</span></div>
+    </div>
+    <div id="status">Ready! Press S to start</div>
+
+<script>
+// ============================================================================
+// GoldenEye 007 Pinball - Bundled Version
+// ============================================================================
+
+// Physics constants
+const Physics = {
+    GRAVITY: 0.12,
+    BALL_RADIUS: 12,
+    FLIPPER_LENGTH: 65,
+    FLIPPER_WIDTH: 12,
+    FLIPPER_ANGULAR_VEL: 18,
+    FLIPPER_MAX_ANGLE: 45,
+    FLIPPER_REST_ANGLE: -25,
+    BALL_FRICTION: 0.998,
+    BOUNCE_DAMPING: 0.65,
+    BUMPER_KICK: 10,
+    SLING_KICK: 7,
+    FLIPPER_KICK: 14,
+    MAX_VELOCITY: 28,
+    LAUNCH_VELOCITY_MIN: 12,
+    LAUNCH_VELOCITY_MAX: 22
+};
+
+// Playfield config
+const PlayfieldConfig = {
+    WIDTH: 800,
+    HEIGHT: 1200,
+    SHOOTER_LANE: { x: 750, y: 1100, width: 40, height: 150 },
+    LEFT_FLIPPER: { x: 280, y: 1050 },
+    RIGHT_FLIPPER: { x: 520, y: 1050 },
+    DRAIN: { x: 300, y: 1180, width: 200, height: 30 }
+};
+
+// ============================================================================
+// Ball Class
+// ============================================================================
+class Ball {
+    constructor(x, y, id = 0) {
+        this.id = id;
+        this.x = x;
+        this.y = y;
+        this.prevX = x;
+        this.prevY = y;
+        this.vx = 0;
+        this.vy = 0;
+        this.radius = Physics.BALL_RADIUS;
+        this.active = true;
+        this.captured = false;
+    }
+
+    update() {
+        if (!this.active || this.captured) return;
+        this.prevX = this.x;
+        this.prevY = this.y;
+        this.vy += Physics.GRAVITY;
+        this.vx *= Physics.BALL_FRICTION;
+        this.vy *= Physics.BALL_FRICTION;
+        const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        if (speed > Physics.MAX_VELOCITY) {
+            const scale = Physics.MAX_VELOCITY / speed;
+            this.vx *= scale;
+            this.vy *= scale;
+        }
+        this.x += this.vx;
+        this.y += this.vy;
+    }
+
+    getInterpolatedPosition(alpha) {
+        return {
+            x: this.prevX + (this.x - this.prevX) * alpha,
+            y: this.prevY + (this.y - this.prevY) * alpha
+        };
+    }
+}
+
+// ============================================================================
+// Flipper Class
+// ============================================================================
+class Flipper {
+    constructor(x, y, isLeft = true) {
+        this.x = x;
+        this.y = y;
+        this.isLeft = isLeft;
+        this.length = Physics.FLIPPER_LENGTH;
+        this.width = Physics.FLIPPER_WIDTH;
+        this.restAngle = isLeft
+            ? (Physics.FLIPPER_REST_ANGLE * Math.PI / 180)
+            : (Math.PI - Physics.FLIPPER_REST_ANGLE * Math.PI / 180);
+        this.maxAngle = isLeft
+            ? ((Physics.FLIPPER_REST_ANGLE + Physics.FLIPPER_MAX_ANGLE) * Math.PI / 180)
+            : (Math.PI - (Physics.FLIPPER_REST_ANGLE + Physics.FLIPPER_MAX_ANGLE) * Math.PI / 180);
+        this.angle = this.restAngle;
+        this.targetAngle = this.restAngle;
+        this.angularVelocity = 0;
+        this.isPressed = false;
+    }
+
+    press() {
+        this.isPressed = true;
+        this.targetAngle = this.maxAngle;
+    }
+
+    release() {
+        this.isPressed = false;
+        this.targetAngle = this.restAngle;
+    }
+
+    update() {
+        const angleDiff = this.targetAngle - this.angle;
+        const angularSpeed = Physics.FLIPPER_ANGULAR_VEL * Math.PI / 180;
+        if (Math.abs(angleDiff) < 0.01) {
+            this.angle = this.targetAngle;
+            this.angularVelocity = 0;
+        } else if (angleDiff > 0) {
+            this.angularVelocity = this.isLeft ? angularSpeed : -angularSpeed;
+            this.angle += this.angularVelocity;
+            if ((this.isLeft && this.angle > this.targetAngle) ||
+                (!this.isLeft && this.angle < this.targetAngle)) {
+                this.angle = this.targetAngle;
+            }
+        } else {
+            this.angularVelocity = this.isLeft ? -angularSpeed * 0.6 : angularSpeed * 0.6;
+            this.angle += this.angularVelocity;
+            if ((this.isLeft && this.angle < this.targetAngle) ||
+                (!this.isLeft && this.angle > this.targetAngle)) {
+                this.angle = this.targetAngle;
+            }
+        }
+    }
+
+    getTipPosition() {
+        return {
+            x: this.x + Math.cos(this.angle) * this.length,
+            y: this.y + Math.sin(this.angle) * this.length
+        };
+    }
+
+    isMovingUp() {
+        return this.isLeft ? this.angularVelocity > 0.1 : this.angularVelocity < -0.1;
+    }
+}
+
+// ============================================================================
+// Collision Zones
+// ============================================================================
+const CollisionZones = [
+    // Bumpers
+    { name: 'bumper_left', type: 'circle', x: 250, y: 280, radius: 28, kicks: true, kickStrength: Physics.BUMPER_KICK },
+    { name: 'bumper_bottom', type: 'circle', x: 350, y: 350, radius: 28, kicks: true, kickStrength: Physics.BUMPER_KICK },
+    { name: 'bumper_right', type: 'circle', x: 450, y: 280, radius: 28, kicks: true, kickStrength: Physics.BUMPER_KICK },
+    // Left target bank
+    { name: 'left_bank_1', type: 'rect', x: 70, y: 500, w: 18, h: 35, normal: { x: 1, y: 0 } },
+    { name: 'left_bank_2', type: 'rect', x: 70, y: 455, w: 18, h: 35, normal: { x: 1, y: 0 } },
+    { name: 'left_bank_3', type: 'rect', x: 70, y: 410, w: 18, h: 35, normal: { x: 1, y: 0 } },
+    { name: 'left_bank_4', type: 'rect', x: 70, y: 365, w: 18, h: 35, normal: { x: 1, y: 0 } },
+    { name: 'left_bank_5', type: 'rect', x: 70, y: 320, w: 18, h: 35, normal: { x: 1, y: 0 } },
+    // Right target bank
+    { name: 'right_bank_1', type: 'rect', x: 712, y: 500, w: 18, h: 35, normal: { x: -1, y: 0 } },
+    { name: 'right_bank_2', type: 'rect', x: 712, y: 455, w: 18, h: 35, normal: { x: -1, y: 0 } },
+    { name: 'right_bank_3', type: 'rect', x: 712, y: 410, w: 18, h: 35, normal: { x: -1, y: 0 } },
+    { name: 'right_bank_4', type: 'rect', x: 712, y: 365, w: 18, h: 35, normal: { x: -1, y: 0 } },
+    { name: 'right_bank_5', type: 'rect', x: 712, y: 320, w: 18, h: 35, normal: { x: -1, y: 0 } },
+    // Slingshots
+    { name: 'left_sling', type: 'line', x1: 180, y1: 950, x2: 230, y2: 880, kicks: true, kickStrength: Physics.SLING_KICK },
+    { name: 'right_sling', type: 'line', x1: 620, y1: 950, x2: 570, y2: 880, kicks: true, kickStrength: Physics.SLING_KICK },
+    // Scoop
+    { name: 'scoop', type: 'circle', x: 150, y: 550, radius: 25, capturesBall: true },
+    // Walls
+    { name: 'wall_left', type: 'line', x1: 50, y1: 200, x2: 50, y2: 900 },
+    { name: 'wall_right', type: 'line', x1: 750, y1: 200, x2: 750, y2: 850 },
+    { name: 'wall_upper_left', type: 'line', x1: 50, y1: 200, x2: 150, y2: 60 },
+    { name: 'wall_upper_right', type: 'line', x1: 650, y1: 60, x2: 750, y2: 200 },
+    { name: 'wall_left_outlane', type: 'line', x1: 50, y1: 900, x2: 130, y2: 1080 },
+    { name: 'wall_right_outlane', type: 'line', x1: 700, y1: 900, x2: 670, y2: 1080 },
+    { name: 'wall_left_divider', type: 'line', x1: 140, y1: 950, x2: 180, y2: 1050 },
+    { name: 'wall_right_divider', type: 'line', x1: 660, y1: 950, x2: 620, y2: 1050 }
+];
+
+// ============================================================================
+// Game State
+// ============================================================================
+const game = {
+    state: 'attract', // attract, playing, gameOver
+    score: 0,
+    ballNumber: 1,
+    ballsRemaining: 3,
+    balls: [],
+    leftFlipper: null,
+    rightFlipper: null,
+    plungerCharging: false,
+    plungerPower: 0,
+    ballSaveActive: false,
+    ballSaveTimer: null,
+    lampShowStep: 0,
+    lastFrameTime: 0,
+    fps: 0,
+    frameCount: 0,
+    fpsTime: 0
+};
+
+// ============================================================================
+// Game Functions
+// ============================================================================
+function startGame() {
+    if (game.state === 'playing') return;
+    game.state = 'playing';
+    game.score = 0;
+    game.ballNumber = 1;
+    game.ballsRemaining = 3;
+    game.balls = [];
+    updateScore(0);
+    updateBallNumber(1);
+    updateStatus('PLAYING');
+    launchBall();
+}
+
+function launchBall() {
+    const ball = new Ball(
+        PlayfieldConfig.SHOOTER_LANE.x + 20,
+        PlayfieldConfig.SHOOTER_LANE.y
+    );
+    game.balls.push(ball);
+    game.ballSaveActive = true;
+    if (game.ballSaveTimer) clearTimeout(game.ballSaveTimer);
+    game.ballSaveTimer = setTimeout(() => {
+        game.ballSaveActive = false;
+    }, 10000);
+}
+
+function drainBall(ball) {
+    ball.active = false;
+    if (game.ballSaveActive) {
+        // Ball save!
+        setTimeout(launchBall, 500);
+        return;
+    }
+    game.balls = game.balls.filter(b => b.active);
+    if (game.balls.length === 0) {
+        game.ballsRemaining--;
+        if (game.ballsRemaining > 0) {
+            game.ballNumber++;
+            updateBallNumber(game.ballNumber);
+            setTimeout(launchBall, 1500);
+        } else {
+            gameOver();
+        }
+    }
+}
+
+function gameOver() {
+    game.state = 'attract';
+    updateStatus('GAME OVER - Press S');
+}
+
+function addScore(points) {
+    game.score += points;
+    updateScore(game.score);
+}
+
+function updateScore(score) {
+    document.getElementById('score-value').textContent = score.toLocaleString();
+}
+
+function updateBallNumber(num) {
+    document.getElementById('ball-number').textContent = num;
+}
+
+function updateStatus(status) {
+    document.getElementById('debug-state').textContent = status;
+}
+
+// ============================================================================
+// Physics
+// ============================================================================
+function updatePhysics() {
+    // Update flippers
+    game.leftFlipper.update();
+    game.rightFlipper.update();
+
+    // Update plunger
+    if (game.plungerCharging) {
+        game.plungerPower = Math.min(1, game.plungerPower + 0.02);
+    }
+
+    // Update balls
+    for (const ball of game.balls) {
+        if (!ball.active) continue;
+        ball.update();
+        checkBoundaryCollision(ball);
+        checkFlipperCollision(ball, game.leftFlipper);
+        checkFlipperCollision(ball, game.rightFlipper);
+        checkZoneCollisions(ball);
+        checkDrain(ball);
+    }
+}
+
+function checkBoundaryCollision(ball) {
+    if (ball.x - ball.radius < 50) {
+        ball.x = 50 + ball.radius;
+        ball.vx = Math.abs(ball.vx) * Physics.BOUNCE_DAMPING;
+    }
+    if (ball.x + ball.radius > 750 && ball.y < 850) {
+        ball.x = 750 - ball.radius;
+        ball.vx = -Math.abs(ball.vx) * Physics.BOUNCE_DAMPING;
+    }
+    if (ball.y - ball.radius < 50) {
+        ball.y = 50 + ball.radius;
+        ball.vy = Math.abs(ball.vy) * Physics.BOUNCE_DAMPING;
+    }
+}
+
+function checkFlipperCollision(ball, flipper) {
+    const tip = flipper.getTipPosition();
+    const dx = tip.x - flipper.x;
+    const dy = tip.y - flipper.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const nx = dx / len;
+    const ny = dy / len;
+    const bx = ball.x - flipper.x;
+    const by = ball.y - flipper.y;
+    const proj = bx * nx + by * ny;
+    const clampedProj = Math.max(0, Math.min(len, proj));
+    const closestX = flipper.x + nx * clampedProj;
+    const closestY = flipper.y + ny * clampedProj;
+    const distX = ball.x - closestX;
+    const distY = ball.y - closestY;
+    const dist = Math.sqrt(distX * distX + distY * distY);
+    const collisionDist = ball.radius + flipper.width / 2;
+
+    if (dist < collisionDist) {
+        const overlap = collisionDist - dist;
+        const pushX = (distX / dist) * overlap;
+        const pushY = (distY / dist) * overlap;
+        ball.x += pushX;
+        ball.y += pushY;
+        const normalX = distX / dist;
+        const normalY = distY / dist;
+        const dot = ball.vx * normalX + ball.vy * normalY;
+        ball.vx -= 2 * dot * normalX;
+        ball.vy -= 2 * dot * normalY;
+        ball.vx *= Physics.BOUNCE_DAMPING;
+        ball.vy *= Physics.BOUNCE_DAMPING;
+
+        if (flipper.isMovingUp()) {
+            const kickX = -ny * Physics.FLIPPER_KICK * (flipper.isLeft ? 0.3 : -0.3);
+            const kickY = -Math.abs(nx) * Physics.FLIPPER_KICK;
+            ball.vx += kickX;
+            ball.vy += kickY;
+        }
+    }
+}
+
+function checkZoneCollisions(ball) {
+    for (const zone of CollisionZones) {
+        switch (zone.type) {
+            case 'circle':
+                checkCircleCollision(ball, zone);
+                break;
+            case 'rect':
+                checkRectCollision(ball, zone);
+                break;
+            case 'line':
+                checkLineCollision(ball, zone);
+                break;
+        }
+    }
+}
+
+function checkCircleCollision(ball, zone) {
+    const dx = ball.x - zone.x;
+    const dy = ball.y - zone.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const minDist = ball.radius + zone.radius;
+
+    if (dist < minDist) {
+        const overlap = minDist - dist;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        ball.x += nx * overlap;
+        ball.y += ny * overlap;
+        const dot = ball.vx * nx + ball.vy * ny;
+        ball.vx -= 2 * dot * nx;
+        ball.vy -= 2 * dot * ny;
+        ball.vx *= Physics.BOUNCE_DAMPING;
+        ball.vy *= Physics.BOUNCE_DAMPING;
+
+        if (zone.kicks) {
+            ball.vx += nx * zone.kickStrength;
+            ball.vy += ny * zone.kickStrength;
+            if (zone.name.includes('bumper')) {
+                addScore(1000);
+            }
+        }
+    }
+}
+
+function checkRectCollision(ball, zone) {
+    const closestX = Math.max(zone.x, Math.min(ball.x, zone.x + zone.w));
+    const closestY = Math.max(zone.y, Math.min(ball.y, zone.y + zone.h));
+    const dx = ball.x - closestX;
+    const dy = ball.y - closestY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < ball.radius) {
+        const overlap = ball.radius - dist;
+        const nx = dist > 0 ? dx / dist : (zone.normal?.x || 0);
+        const ny = dist > 0 ? dy / dist : (zone.normal?.y || -1);
+        ball.x += nx * overlap;
+        ball.y += ny * overlap;
+        const dot = ball.vx * nx + ball.vy * ny;
+        ball.vx -= 2 * dot * nx;
+        ball.vy -= 2 * dot * ny;
+        ball.vx *= Physics.BOUNCE_DAMPING;
+        ball.vy *= Physics.BOUNCE_DAMPING;
+
+        if (zone.name.includes('bank')) {
+            addScore(5000);
+        }
+    }
+}
+
+function checkLineCollision(ball, zone) {
+    const dx = zone.x2 - zone.x1;
+    const dy = zone.y2 - zone.y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const nx = dx / len;
+    const ny = dy / len;
+    const bx = ball.x - zone.x1;
+    const by = ball.y - zone.y1;
+    const proj = bx * nx + by * ny;
+    const clampedProj = Math.max(0, Math.min(len, proj));
+    const closestX = zone.x1 + nx * clampedProj;
+    const closestY = zone.y1 + ny * clampedProj;
+    const distX = ball.x - closestX;
+    const distY = ball.y - closestY;
+    const dist = Math.sqrt(distX * distX + distY * distY);
+
+    if (dist < ball.radius) {
+        const overlap = ball.radius - dist;
+        const pnx = distX / dist;
+        const pny = distY / dist;
+        ball.x += pnx * overlap;
+        ball.y += pny * overlap;
+        const dot = ball.vx * pnx + ball.vy * pny;
+        ball.vx -= 2 * dot * pnx;
+        ball.vy -= 2 * dot * pny;
+        ball.vx *= Physics.BOUNCE_DAMPING;
+        ball.vy *= Physics.BOUNCE_DAMPING;
+
+        if (zone.kicks) {
+            ball.vx += pnx * zone.kickStrength;
+            ball.vy += pny * zone.kickStrength;
+        }
+    }
+}
+
+function checkDrain(ball) {
+    const drain = PlayfieldConfig.DRAIN;
+    if (ball.x > drain.x && ball.x < drain.x + drain.width && ball.y > drain.y) {
+        drainBall(ball);
+    }
+}
+
+function firePlunger() {
+    const shooterBall = game.balls.find(b =>
+        b.active && b.x > 720 && b.y > 1050
+    );
+    if (shooterBall) {
+        const power = Physics.LAUNCH_VELOCITY_MIN +
+            (Physics.LAUNCH_VELOCITY_MAX - Physics.LAUNCH_VELOCITY_MIN) * game.plungerPower;
+        shooterBall.vy = -power;
+        shooterBall.vx = -2;
+    }
+    game.plungerPower = 0;
+    game.plungerCharging = false;
+}
+
+// ============================================================================
+// Rendering
+// ============================================================================
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+
+function render(alpha) {
+    // Clear
+    ctx.fillStyle = '#1a3a1a';
+    ctx.fillRect(0, 0, 800, 1200);
+
+    // Draw playfield elements
+    drawPlayfield();
+    drawFlippers(alpha);
+    drawBalls(alpha);
+    drawPlunger();
+
+    // Update debug display
+    document.getElementById('debug-fps').textContent = game.fps;
+    document.getElementById('debug-balls').textContent = game.balls.filter(b => b.active).length;
+}
+
+function drawPlayfield() {
+    // Playfield border
+    ctx.strokeStyle = '#8b4513';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(46, 46, 708, 1108);
+
+    // Shooter lane
+    ctx.fillStyle = '#2a4a2a';
+    ctx.fillRect(720, 850, 50, 350);
+
+    // Drain
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(300, 1180, 200, 30);
+
+    // Bumpers
+    drawBumper(250, 280, '#FFD700');
+    drawBumper(350, 350, '#FFD700');
+    drawBumper(450, 280, '#FFD700');
+
+    // Target banks
+    drawTargetBank(70, 320, 5);
+    drawTargetBank(712, 320, 5);
+
+    // Center drops
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 3; i++) {
+        ctx.fillRect(340 + i * 50, 200, 40, 15);
+    }
+
+    // Slingshots
+    drawSlingshot(180, 950, 230, 880, true);
+    drawSlingshot(620, 950, 570, 880, false);
+
+    // Scoop
+    ctx.fillStyle = '#9932CC';
+    ctx.beginPath();
+    ctx.arc(150, 550, 25, 0, Math.PI);
+    ctx.fill();
+
+    // Ramps
+    ctx.fillStyle = '#FFA500';
+    ctx.fillRect(120, 650, 50, 20);
+    ctx.fillRect(370, 450, 60, 20);
+    ctx.fillRect(620, 650, 50, 20);
+
+    // Top lanes
+    ctx.fillStyle = '#4a4a4a';
+    ctx.fillRect(200, 60, 60, 50);
+    ctx.fillRect(300, 50, 60, 50);
+    ctx.fillRect(400, 60, 60, 50);
+
+    // Outlanes/inlanes
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(100, 1000, 30, 80);
+    ctx.fillRect(670, 1000, 30, 80);
+    ctx.fillRect(160, 980, 30, 50);
+    ctx.fillRect(610, 980, 30, 50);
+
+    // Tank area
+    ctx.fillStyle = '#556b2f';
+    ctx.fillRect(570, 450, 100, 120);
+
+    // Satellite
+    ctx.fillStyle = '#4169e1';
+    ctx.beginPath();
+    ctx.arc(400, 150, 35, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Labels
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('SATELLITE', 400, 155);
+    ctx.fillText('SCOOP', 150, 580);
+    ctx.fillText('TANK', 620, 530);
+
+    // Instructions during attract
+    if (game.state === 'attract') {
+        ctx.fillStyle = '#ffff00';
+        ctx.font = 'bold 24px Arial';
+        ctx.fillText('PRESS S TO START', 400, 700);
+        ctx.font = '16px Arial';
+        ctx.fillText('Z = Left Flipper, X = Right Flipper', 400, 740);
+        ctx.fillText('SPACE = Launch Ball', 400, 770);
+    }
+}
+
+function drawBumper(x, y, color) {
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.arc(x, y, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(x - 5, y - 5, 6, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawTargetBank(x, y, count) {
+    for (let i = 0; i < count; i++) {
+        ctx.fillStyle = '#32CD32';
+        ctx.fillRect(x, y + i * 45, 18, 35);
+    }
+}
+
+function drawSlingshot(x1, y1, x2, y2, isLeft) {
+    ctx.fillStyle = '#4444FF';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(isLeft ? x1 + 50 : x1 - 50, y1 - 30);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawFlippers(alpha) {
+    drawFlipper(game.leftFlipper, '#FF4444');
+    drawFlipper(game.rightFlipper, '#FF4444');
+}
+
+function drawFlipper(flipper, color) {
+    const tip = flipper.getTipPosition();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = flipper.width;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(flipper.x, flipper.y);
+    ctx.lineTo(tip.x, tip.y);
+    ctx.stroke();
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.arc(flipper.x, flipper.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawBalls(alpha) {
+    for (const ball of game.balls) {
+        if (!ball.active) continue;
+        const pos = ball.getInterpolatedPosition(alpha);
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.ellipse(pos.x + 3, pos.y + 3, ball.radius, ball.radius * 0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ball
+        const gradient = ctx.createRadialGradient(pos.x - 3, pos.y - 3, 0, pos.x, pos.y, ball.radius);
+        gradient.addColorStop(0, '#ffffff');
+        gradient.addColorStop(0.3, '#c0c0c0');
+        gradient.addColorStop(1, '#808080');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, ball.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Highlight
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.beginPath();
+        ctx.arc(pos.x - 3, pos.y - 3, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function drawPlunger() {
+    const baseY = 1100;
+    const pullAmount = game.plungerPower * 80;
+
+    ctx.fillStyle = '#333';
+    ctx.fillRect(735, 950, 20, 150);
+
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(730, baseY + pullAmount, 30, 40);
+
+    ctx.fillStyle = '#c0c0c0';
+    ctx.fillRect(737, baseY - 20 + pullAmount, 16, 25);
+
+    if (game.plungerCharging) {
+        ctx.fillStyle = `rgb(${255 * game.plungerPower}, ${255 * (1 - game.plungerPower)}, 0)`;
+        ctx.fillRect(770, baseY - game.plungerPower * 80, 10, game.plungerPower * 80);
+    }
+}
+
+// ============================================================================
+// Input Handling
+// ============================================================================
+const keys = {};
+
+window.addEventListener('keydown', (e) => {
+    if (keys[e.code]) return;
+    keys[e.code] = true;
+
+    switch (e.code) {
+        case 'KeyZ':
+        case 'ShiftLeft':
+            game.leftFlipper.press();
+            break;
+        case 'KeyX':
+        case 'ShiftRight':
+            game.rightFlipper.press();
+            break;
+        case 'Space':
+            e.preventDefault();
+            game.plungerCharging = true;
+            game.plungerPower = 0;
+            break;
+        case 'KeyS':
+        case 'Enter':
+            if (game.state === 'attract') {
+                startGame();
+            }
+            break;
+    }
+});
+
+window.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+
+    switch (e.code) {
+        case 'KeyZ':
+        case 'ShiftLeft':
+            game.leftFlipper.release();
+            break;
+        case 'KeyX':
+        case 'ShiftRight':
+            game.rightFlipper.release();
+            break;
+        case 'Space':
+            firePlunger();
+            break;
+    }
+});
+
+// Mouse/touch support for flippers
+canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (y > 900) {
+        if (x < 400) {
+            game.leftFlipper.press();
+        } else {
+            game.rightFlipper.press();
+        }
+    }
+    if (x > 720 && y > 950) {
+        game.plungerCharging = true;
+        game.plungerPower = 0;
+    }
+});
+
+canvas.addEventListener('mouseup', () => {
+    game.leftFlipper.release();
+    game.rightFlipper.release();
+    if (game.plungerCharging) {
+        firePlunger();
+    }
+});
+
+// ============================================================================
+// Game Loop
+// ============================================================================
+const FIXED_DT = 1000 / 60;
+let accumulator = 0;
+let lastTime = performance.now();
+
+function gameLoop(currentTime) {
+    requestAnimationFrame(gameLoop);
+
+    const deltaTime = currentTime - lastTime;
+    lastTime = currentTime;
+
+    // FPS calculation
+    game.frameCount++;
+    game.fpsTime += deltaTime;
+    if (game.fpsTime >= 1000) {
+        game.fps = Math.round(game.frameCount * 1000 / game.fpsTime);
+        game.frameCount = 0;
+        game.fpsTime = 0;
+    }
+
+    // Fixed timestep updates
+    accumulator += Math.min(deltaTime, FIXED_DT * 5);
+    while (accumulator >= FIXED_DT) {
+        updatePhysics();
+        accumulator -= FIXED_DT;
+    }
+
+    // Render with interpolation
+    const alpha = accumulator / FIXED_DT;
+    render(alpha);
+}
+
+// ============================================================================
+// Initialize
+// ============================================================================
+function init() {
+    game.leftFlipper = new Flipper(PlayfieldConfig.LEFT_FLIPPER.x, PlayfieldConfig.LEFT_FLIPPER.y, true);
+    game.rightFlipper = new Flipper(PlayfieldConfig.RIGHT_FLIPPER.x, PlayfieldConfig.RIGHT_FLIPPER.y, false);
+    console.log('GoldenEye 007 Pinball initialized');
+    console.log('Press S to start, Z/X for flippers, SPACE to launch');
+    requestAnimationFrame(gameLoop);
+}
+
+init();
+</script>
+</body>
+</html>
