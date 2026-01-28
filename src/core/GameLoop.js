@@ -81,7 +81,14 @@ class GameLoop {
      * Start the game loop
      */
     start() {
-        if (this.isRunning) return;
+        if (this.isRunning) {
+            console.log('GameLoop already running');
+            return;
+        }
+
+        console.log('GameLoop starting...');
+        console.log('  Update callbacks:', this.updateCallbacks.length);
+        console.log('  Render callbacks:', this.renderCallbacks.length);
 
         this.isRunning = true;
         this.isPaused = false;
@@ -89,7 +96,7 @@ class GameLoop {
         this.accumulator = 0;
         this.frameId = requestAnimationFrame(this.loop);
 
-        console.log('GameLoop started');
+        console.log('GameLoop started, frameId:', this.frameId);
     }
 
     /**
